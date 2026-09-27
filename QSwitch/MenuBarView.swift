@@ -11,6 +11,12 @@ struct MenuBarView: View {
     @State private var presetName: String = ""
     // 当前鼠标悬停的预设项 ID
     @State private var hoveredPresetId: UUID?
+    // 控制分辨率下拉面板的显示状态
+    @State private var showResolutionPicker: Bool = false
+    // 控制输入设备下拉面板的显示状态
+    @State private var showInputPicker: Bool = false
+    // 控制输出设备下拉面板的显示状态
+    @State private var showOutputPicker: Bool = false
     
     // 字体设置
     // 标签字体
@@ -54,32 +60,29 @@ struct MenuBarView: View {
                                 .foregroundColor(.primary)
                         }
                         
-                        // 分辨率选择菜单
-                        Menu {
-                            // 获取分辨率清单，生成菜单项
-                            ForEach(displayManager.availableModes) { mode in
-                                Button {
-                                    // 点击时切换分辨率
-                                    displayManager.setResolution(mode)
-                                } label: {
-                                    // 当前激活的分辨率显示勾选标记
-                                    if mode.width == displayManager.currentWidth {
-                                        Text("✓ \(mode.title)").font(contentFont)
-                                    } else {
-                                        Text(mode.title).font(contentFont)
-                                    }
-                                }
-                            }
+                        // 分辨率选择行：结构与 AudioDeviceRow 内部按钮保持一致，
+                        // .popover 直接挂在裸 Button 外面，不再套一层 DropdownRow 组件，
+                        // 避免多层背景叠加导致系统绘制额外的边框轮廓
+                        Button {
+                            showResolutionPicker = true
                         } label: {
-                            // 菜单按钮的显示内容
                             HStack {
                                 // 查找当前激活的分辨率模式
                                 let current = displayManager.availableModes.first(where: { $0.width == displayManager.currentWidth })
                                 Text(current?.title ?? "选择分辨率...")
                                     .font(contentFont)
                                     .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                
                                 Spacer()
+                                
+                                // 自绘箭头，永远紧贴右边缘，展开时旋转 180 度
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                    .rotationEffect(.degrees(showResolutionPicker ? 180 : 0))
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 16)
                             .background(
@@ -87,9 +90,41 @@ struct MenuBarView: View {
                                     .fill(Color(nsColor: .controlBackgroundColor))
                                     .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
                             )
+                            .contentShape(Rectangle())
                         }
-                        .menuStyle(.borderlessButton)
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showResolutionPicker, arrowEdge: .top) {
+                            PopoverOptionList {
+                                // 获取分辨率清单，生成选项列表
+                                ForEach(displayManager.availableModes) { mode in
+                                    Button {
+                                        // 点击时切换分辨率
+                                        displayManager.setResolution(mode)
+                                        showResolutionPicker = false
+                                    } label: {
+                                        HStack {
+                                            Text(mode.title)
+                                                .font(contentFont)
+                                                .foregroundColor(.primary)
+                                            Spacer()
+                                            // 当前激活的分辨率显示勾选标记
+                                            if mode.width == displayManager.currentWidth {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundColor(.blue)
+                                            }
+                                        }
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 14)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
                     }
+                    // 让卡片内容整体撑满，避免子视图收缩连带塌陷
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 
                 // 音频控制卡片
@@ -112,8 +147,10 @@ struct MenuBarView: View {
                             iconColor: .orange,
                             devices: audioManager.inputDevices, // 输入设备列表
                             currentID: audioManager.currentInputID, // 当前选中的输入设备 ID
+                            isExpanded: $showInputPicker,
                             onSelect: { deviceId in
                                 audioManager.setDevice(id: deviceId, isInput: true) // 切换输出设备
+                                showInputPicker = false
                             }
                         )
                         
@@ -123,11 +160,15 @@ struct MenuBarView: View {
                             iconColor: .green,
                             devices: audioManager.outputDevices, // 输出设备列表
                             currentID: audioManager.currentOutputID, // 当前选中的输出设备 ID
+                            isExpanded: $showOutputPicker,
                             onSelect: { deviceId in
                                 audioManager.setDevice(id: deviceId, isInput: false) // 切换输出设备
+                                showOutputPicker = false
                             }
                         )
                     }
+                    // 让卡片内容整体撑满，避免子视图收缩连带塌陷
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 
                 // 场景预设卡片
@@ -194,6 +235,8 @@ struct MenuBarView: View {
                             .padding(.top, 4)
                         }
                     }
+                    // 让卡片内容整体撑满，避免子视图收缩连带塌陷
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(20)
@@ -247,7 +290,8 @@ struct MenuBarView: View {
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         }
         .frame(width: 380)
-        // 垂直方向自适应高度，水平方向固定
+        // 垂直方向自适应高度，水平方向固定。popover 是系统级浮层，完全不占用布局空间，
+        // 不会影响这里的高度计算，这是相比自绘浮层更可靠的根本原因
         .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
@@ -256,6 +300,23 @@ struct MenuBarView: View {
             audioManager.refreshDevices() // 刷新音频设备列表
             launchManager.checkStatus() // 检查开机启动状态
         }
+    }
+}
+
+// popover 内部选项列表的统一容器：控制最小宽度和内边距
+struct PopoverOptionList<Content: View>: View {
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            content
+        }
+        .padding(6)
+        .frame(minWidth: 220)
     }
 }
 
@@ -269,6 +330,8 @@ struct CardView<Content: View>: View {
     
     var body: some View {
         content
+            // 撑满父容器宽度，防止内部子视图收缩导致卡片整体变窄
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 14)
@@ -278,7 +341,7 @@ struct CardView<Content: View>: View {
     }
 }
 
-// 音频设备行组件
+// 音频设备行组件：文字靠左，箭头靠右，点击弹出系统 popover 显示设备列表
 struct AudioDeviceRow: View {
     let icon: String
     let iconColor: Color
@@ -286,27 +349,22 @@ struct AudioDeviceRow: View {
     let devices: [AudioDevice]
     // 当前选中的设备 ID
     let currentID: UInt32?
+    // 是否展开设备列表，绑定给 popover 使用
+    @Binding var isExpanded: Bool
     // 选择设备时回调闭包
     let onSelect: (UInt32) -> Void
     
     var body: some View {
         HStack(spacing: 8) {
+            // 图标带纯色圆形背景
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(iconColor)
-                .frame(width: 16, alignment: .center)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(iconColor))
             
-            // 设备选择菜单
-            Menu {
-                // 获取全部设备，生成下拉菜单
-                ForEach(devices) { device in
-                    Button {
-                        onSelect(device.id)
-                    } label: {
-                        // 当前选中的设备，显示勾选标记
-                        Text((device.id == currentID ? "✓ " : "") + device.name)
-                    }
-                }
+            Button {
+                isExpanded = true
             } label: {
                 HStack {
                     let current = devices.first(where: { $0.id == currentID })
@@ -314,18 +372,55 @@ struct AudioDeviceRow: View {
                         .font(.system(size: 13))
                         .foregroundColor(.primary)
                         .lineLimit(1) // 单行显示，超长文本截断
+                    
                     Spacer()
+                    
+                    // 自绘箭头，永远紧贴右边缘，展开时旋转 180 度
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color(nsColor: .controlBackgroundColor))
-                        .shadow(color: .black.opacity(0.04), radius: 1, x: 0, y: 1)
                 )
+                .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .popover(isPresented: $isExpanded, arrowEdge: .top) {
+                PopoverOptionList {
+                    // 获取全部设备，生成选项列表
+                    ForEach(devices) { device in
+                        Button {
+                            onSelect(device.id)
+                        } label: {
+                            HStack {
+                                Text(device.name)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                // 当前选中的设备，显示勾选标记
+                                if device.id == currentID {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding(.vertical, 7)
+                            .padding(.horizontal, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
+        // 整行撑满 CardView 内部空间，避免 VStack 按内容宽度收缩
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -373,6 +468,8 @@ struct PresetRow: View {
             }
             .buttonStyle(.plain)
         }
+        // 撑满卡片宽度，避免整行按钮宽度收窄
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(isHovered ? Color.blue.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
